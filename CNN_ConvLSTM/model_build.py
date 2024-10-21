@@ -162,8 +162,8 @@ class ResNet_CrashAttention(nn.Module):
 
 class Resnet_crashattention_ConvLSTM(nn.Module):
     def __init__(self, num_hiddens, num_classes):
-        super(Resnet_crashattention_ConvLSTM, self).__init__()  # 继承父类的初始化
-        crash_attention = Crashattention(7,2048)
+        super(Resnet_crashattention_ConvLSTM, self).__init__()
+        crash_attention = Crashattention(7, 2048)
         model = models.resnet50(pretrained=True)
         net = nn.Sequential()
         net.add_module('conv1', model.conv1)
@@ -174,21 +174,20 @@ class Resnet_crashattention_ConvLSTM(nn.Module):
         net.add_module('layer2', model.layer2)
         net.add_module('layer3', model.layer3)
         net.add_module('layer4', model.layer4)
-        net.add_module('crashattention',crash_attention)
+        net.add_module('crashattention', crash_attention)
         self.cnn = net  # 输出shape为(batch_size,2048,7,7)
 
         self.cnn_layer = nn.Sequential(nn.Conv2d(2048, 64, kernel_size=1),
                                        nn.ReLU(inplace=True))
 
         self.convlstm = ConvLSTM(input_size=(7, 7), input_dim=64, hidden_dim=num_hiddens, kernel_size=(3, 3),
-                                 num_layers=2, batch_first=True, \
+                                 num_layers=2, batch_first=True,
                                  bias=True, return_all_layers=False)
 
         self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
-        # 输出shape为(seq_len*batch_size,num_hiddens)
         self.classifier_convlstm = nn.Sequential(
-            nn.Linear(num_hiddens, num_classes, bias=False),  ##输出shape为(seq_len*batch_size,num_classes)
+            nn.Linear(num_hiddens, num_classes, bias=False),
         )
 
     def forward(self, x):
@@ -196,18 +195,18 @@ class Resnet_crashattention_ConvLSTM(nn.Module):
         c_in = x.view(batch_size * time_steps, channels, height, width)  # (img_num,3,224,224)
         feature_map = self.cnn(c_in)  # (img_num,2048,7,7)
         feature_map = self.cnn_layer(feature_map)  # (img_num,64,7,7)
-        conv_lstm_input = feature_map.unsqueeze(dim=0)  # (1,img_num,64,7,7)
-        conv_lstm_output, _ = self.convlstm(conv_lstm_input)  # list,[shape(1,img_num,64,7,7)]
-        conv_lstm_output = conv_lstm_output[0][:, -1, ...].squeeze(dim=1)  # shape(1,64,7,7)
-        avgpool = self.avgpool(conv_lstm_output)  # shape(1,64,1,1)
+        conv_lstm_input = feature_map.view(batch_size, time_steps, 64, 7, 7)  # (batch_size, time_steps, 64, 7, 7)
+        conv_lstm_output, _ = self.convlstm(conv_lstm_input)  # list,[shape(batch_size,time_steps,64,7,7)]
+        conv_lstm_output = conv_lstm_output[0][:, -1, ...]  # shape(batch_size,64,7,7)
+        avgpool = self.avgpool(conv_lstm_output)  # shape(batch_size,64,1,1)
         avgpool = avgpool.view(avgpool.size(0), -1)
-        output = self.classifier_convlstm(avgpool)  # shape(1,num_classes)
+        output = self.classifier_convlstm(avgpool)  # shape(batch_size,num_classes)
 
         return output
 
 if __name__ == '__main__':
-    model = Resnet_crashattention_ConvLSTM(64,10)
+    model = Resnet_crashattention_ConvLSTM(64, 10)
     model = model.cuda()
-    input = torch.randn((1,10, 3, 224, 224)).cuda()
+    input = torch.randn((2, 10, 3, 224, 224)).cuda()
     output = model(input)
     print(output.shape)
